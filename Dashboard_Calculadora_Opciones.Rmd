@@ -1,0 +1,295 @@
+---
+title: "Calculadora de opciones"
+output: 
+  flexdashboard::flex_dashboard:
+    source_code: embed
+    orientation: columns
+    vertical_layout: fill
+    theme: 'journal'
+    #css: style.css
+runtime: shiny 
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(rootSolve)
+#journal,flatly,united,sandstone,simplex,yeti
+```
+# Modelo discreto
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Ingresa los datos 
+
+```{r}
+selectInput("tipo_opcion", "Tipo de opcion", 
+            choices= c("Europea", "Americana","Asiatica"),width=200)
+
+selectInput("tipo_arbol", "Tipo de arbol", 
+            choices= c("Precios forward", "Log-normal","Cox-Ross"),width=200)
+
+selectInput("put", "Clase de opcion", 
+            choices= c("Put","Call"),width=200)
+
+numericInput("S0","Valor de S0",1,min=1,width = 100)
+
+numericInput("K","Valor de K",1,min=1,width = 100)
+
+numericInput("tiempo","Tiempo de maduracion",1,min=0,width = 100)
+
+numericInput("u","Valor de u (cero si no hay u)",1,min=0,width = 100)
+
+numericInput("d","Valor de d (cero si no hay d)",1,min=0,width = 100)
+
+numericInput("r","Valor de r",1,min=0,width = 100)
+
+numericInput("delta","Valor de delta",1,min=0,width = 100)
+
+numericInput("n","Numero de periodos",1,min=0,width = 100)
+
+numericInput("sigma","Volatilidad",1,min=0,width = 100)
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Valor de la opcion
+
+```{r}
+renderPrint({
+  h<-input$tiempo/input$n 
+  if(input$u==0){
+    if(input$tipo_arbol=="Precios forward"){
+      u<-exp((input$r-input$delta)*h+input$sigma*sqrt(h))
+      d<-exp((input$r-input$delta)*h-input$sigma*sqrt(h))
+    }
+    if(input$tipo_arbol=="Log-normal"){
+      u<-exp((input$r-input$delta-(1/2)*(input$sigma^2))*h+input$sigma*sqrt(h))
+      d<-exp((input$r-input$delta-(1/2)*(input$sigma^2))*h-input$sigma*sqrt(h))
+      #return(u)
+      #return(d)
+    }
+    if(input$tipo_arbol=="Cox-Ross"){
+      u<-exp(input$sigma*sqrt(h))
+      d<-exp(-input$sigma*sqrt(h))
+    }
+  }
+  else{
+  u<-input$u
+  d<-input$d
+  }
+  #Calcular q
+  q<-(exp((input$r-input$delta)*h)-d)/(u-d)
+  #return(q)
+  
+  #Calcular las Su y las Sd
+  matriz<-matrix(0,nrow = input$n,ncol = input$n+1)
+  for(i in 1:input$n){
+    for (j in 1:(i+1)){
+      matriz[i,j]<-input$S0*d^(j-1)*u^(i-j+1)
+    }
+  }
+  
+  if(input$tipo_opcion=="Europea"){
+    if(input$put=="Put"){
+      #Calcular los payoff Put
+      vector_x_put<-rep(0,ncol(matriz))
+      for(j in 1:length(vector_x_put)){
+        vector_x_put[j]<-max(input$K-matriz[nrow(matriz),j],0)
+      }
+      #return(vector_x_put)
+      #Calcular X0 PUT
+      valores_put<-rep(0,length(vector_x_put))
+      for (i in 0:input$n) {
+        valores_put[i+1]<-choose(input$n,i)*q^(input$n-i)*(1-q)^(i)*vector_x_put[i+1]
+      }
+      x0_put<-exp(-input$r*input$tiempo)*sum(valores_put)
+      return(x0_put)
+    }
+    else{
+      #Calcular los payoff Call
+      vector_x_call<-rep(0,ncol(matriz))
+      for(j in 1:length(vector_x_call)){
+        vector_x_call[j]<-max(matriz[nrow(matriz),j]-input$K,0)
+      }
+      #Calcular X0 CALL
+      valores_call<-rep(0,length(vector_x_call))
+      for (i in 0:input$n) {
+        valores_call[i+1]<-choose(input$n,i)*q^(input$n-i)*(1-q)^(i)*vector_x_call[i+1]
+      }
+      x0_call<-exp(-input$r*input$tiempo)*sum(valores_call)
+      return(x0_call)
+    }
+  }
+  if(input$tipo_opcion=="Americana"){
+    if(input$put=="Put"){
+    #Calcular los payoff Put
+    vector_x_put<-rep(0,ncol(matriz))
+    for(j in 1:length(vector_x_put)){
+    vector_x_put[j]<-max(input$K-matriz[nrow(matriz),j],0)
+    }
+    matriz_x<-matrix(0,nrow = input$n+1,ncol = input$n+1)
+    matriz_x[1,]<-vector_x_put
+    for (i in 1:input$n) {
+    for (j in 1:input$n) {
+    matriz_x[i+1,j]<-max(exp(-input$r*h)*(matriz_x[i,j]*q+matriz_x[i,j+1]*(1-q)),input$K-matriz[input$n-i,j])
+    }
+    }
+    return(matriz_x[input$n+1,1])
+    }
+    else{
+    #Calcular los payoff Call
+    vector_x_call<-rep(0,ncol(matriz))
+    for(j in 1:length(vector_x_call)){
+    vector_x_call[j]<-max(matriz[nrow(matriz),j]-input$K,0)
+    }
+    matriz_x_call<-matrix(0,nrow = input$n+1,ncol = input$n+1)
+    matriz_x_call[1,]<-vector_x_call
+    for (i in 1:input$n) {
+    for (j in 1:input$n) {
+    matriz_x_call[i+1,j]<-max(exp(-input$r*h)*(matriz_x_call[i,j]*q+matriz_x_call[i,j+1]*(1-q)),matriz[input$n-i,j]-input$K)
+    }
+    }
+    return(matriz_x_call[input$n+1,1])
+    }
+  }
+  if(input$tipo_opcion=="Asiatica"){
+    binary<-function(x,N){
+      i<-0
+      string<-numeric(N)
+      while (x>0) {
+        string[N-i]<-x %% 2
+        x<-x%/%2
+        i<-i+1
+      }
+      string
+    }
+    matriz_trayectorias<-matrix(0,nrow = 2^input$n,ncol = input$n+1)
+    matriz_trayectorias[,1]<-input$S0
+    for (i in 1:2^input$n) {
+      for (j in 1:input$n) {
+        matriz_trayectorias[i,j+1]<-matriz_trayectorias[i,j]*u^(binary(i,input$n)[j])*d^(1-binary(i,input$n)[j])
+      }
+    }
+    S_promedio<-rep(0,2^input$n)
+    X_promedio<-rep(0,2^input$n)
+    if(input$put=="Put"){
+      for (l in 1:2^input$n) {
+        S_promedio[l]<-mean(matriz_trayectorias[l,])
+        X_promedio[l]<-exp(-input$r*input$tiempo)*max(input$K-S_promedio[l],0)
+      }
+      return(mean(X_promedio))
+    }
+    else{
+      for (l in 1:2^input$n) {
+        S_promedio[l]<-mean(matriz_trayectorias[l,])
+        X_promedio[l]<-exp(-input$r*input$tiempo)*max(S_promedio[l]-input$K,0)
+      }
+      return(mean(X_promedio))
+    }
+  }
+})
+```
+
+### Nombre
+
+```{r}
+renderPrint({
+  return("Luis Vicente Ruiz Hernández")
+})
+```
+
+
+# Modelo continuo
+Column {data-width=550}
+-----------------------------------------------------------------------
+
+### Ingresa los datos para valuar la opción y obtener las griegas
+
+```{r}
+selectInput("put_continuo", "Clase de opcion", 
+            choices= c("Put","Call"),width=200)
+
+numericInput("S0_continuo","Valor de S0",1,min=1,width = 100)
+
+numericInput("K_continuo","Valor de K",1,min=1,width = 100)
+
+numericInput("tiempo_continuo","Tiempo de maduracion",1,min=0,width = 100)
+
+numericInput("r_continuo","Valor de r",1,min=0,width = 100)
+
+numericInput("delta_continuo","Valor de delta",1,min=0,width = 100)
+
+numericInput("sigma_continuo","Volatilidad",1,min=0,width = 100)
+```
+
+
+### Ingrese los datos para obtener la volatilidad implicita
+
+```{r}
+selectInput("put_volatilidad", "Clase de opcion", 
+            choices= c("Put","Call"),width=200)
+
+numericInput("S0_volatilidad","Valor de S0",1,min=1,width = 100)
+
+numericInput("K_volatilidad","Valor de K",1,min=1,width = 100)
+
+numericInput("tiempo_volatilidad","Tiempo de maduracion",1,min=0,width = 100)
+
+numericInput("r_volatilidad","Valor de r",1,min=0,width = 100)
+
+numericInput("delta_volatilidad","Valor de delta",1,min=0,width = 100)
+
+numericInput("precio_volatilidad","Precio observado de la opción",1,min=0,width = 100)
+```
+
+
+Column {data-width=450}
+-----------------------------------------------------------------------
+
+### Valor de la opcion y griegas
+
+```{r}
+renderPrint({
+  d1<-((log(input$S0_continuo/input$K_continuo)+(input$r_continuo-input$delta_continuo+.5*input$sigma_continuo^2)*input$tiempo_continuo)/(input$sigma_continuo*sqrt(input$tiempo_continuo)))
+  d2<-d1-input$sigma_continuo*sqrt(input$tiempo_continuo)
+  if(input$put_continuo=="Put"){
+    valor<-input$K_continuo*exp(-input$r_continuo*input$tiempo_continuo)*pnorm(-d2,0,1)-input$S0_continuo*exp(-input$delta_continuo*input$tiempo_continuo)*pnorm(-d1,0,1)
+    Delta<- (-exp(-input$delta_continuo*input$tiempo_continuo)*pnorm(-d1,0,1))
+    gamma<-((input$K_continuo*exp(-input$r_continuo*input$tiempo_continuo)*exp(-(d2^2)/(2)))/(sqrt(2*pi)*(input$S0_continuo^2)*input$sigma_continuo*sqrt(input$tiempo_continuo)))
+    vega<-(0.01)*((input$K_continuo*exp(-input$r_continuo*input$tiempo_continuo)*exp(-(d2^2)/(2))*sqrt(input$tiempo_continuo))/(sqrt(2*pi)))
+  }
+  else{
+    valor<-input$S0_continuo*exp(-input$delta_continuo*input$tiempo_continuo)*pnorm(d1,0,1)-input$K_continuo*exp(-input$r_continuo*input$tiempo_continuo)*pnorm(d2,0,1)
+    Delta<-exp(-input$delta_continuo*input$tiempo_continuo)*pnorm(d1,0,1)
+    gamma<-((input$K_continuo*exp(-input$r_continuo*input$tiempo_continuo)*exp(-(d2^2)/(2)))/(sqrt(2*pi)*(input$S0_continuo^2)*input$sigma_continuo*sqrt(input$tiempo_continuo)))
+    vega<-(0.01)*((input$K_continuo*exp(-input$r_continuo*input$tiempo_continuo)*exp(-(d2^2)/(2))*sqrt(input$tiempo_continuo))/(sqrt(2*pi)))
+    
+  }
+  return(list(c("valor",valor),c("delta",Delta),c("gamma",gamma),c("vega",vega)))
+})
+```
+
+
+### Valor de la volatilidad implicita
+
+```{r}
+renderPrint({
+  if(input$put_volatilidad=="Put"){
+    funcion_volatilidad<-function(volatilidad){
+  F1<-(input$K_volatilidad*exp(-input$r_volatilidad*input$tiempo_volatilidad)*pnorm(-((log(input$S0_volatilidad/input$K_volatilidad)+(input$r_volatilidad-input$delta_volatilidad-.5*(volatilidad^2))*input$tiempo_volatilidad)/(volatilidad*sqrt(input$tiempo_volatilidad))),0,1)-input$S0_volatilidad*exp(-input$delta_volatilidad*input$tiempo_volatilidad)*pnorm(-((log(input$S0_volatilidad/input$K_volatilidad)+(input$r_volatilidad-input$delta_volatilidad+.5*(volatilidad^2))*input$tiempo_volatilidad)/(volatilidad*sqrt(input$tiempo_volatilidad))),0,1))-input$precio_volatilidad
+  c(F1=F1)
+    }
+    solucion<-multiroot(f=funcion_volatilidad,start =c(0.05))$root
+  }
+  else{
+    funcion_volatilidad<-function(volatilidad){
+  F1<-(input$S0_volatilidad*exp(-input$delta_volatilidad*input$tiempo_volatilidad)*pnorm(((log(input$S0_volatilidad/input$K_volatilidad)+(input$r_volatilidad-input$delta_volatilidad+.5*(volatilidad^2))*input$tiempo_volatilidad)/(volatilidad*sqrt(input$tiempo_volatilidad))),0,1)-input$K_volatilidad*exp(-input$r_volatilidad*input$tiempo_volatilidad)*pnorm(((log(input$S0_volatilidad/input$K_volatilidad)+(input$r_volatilidad-input$delta_volatilidad-.5*(volatilidad^2))*input$tiempo_volatilidad)/(volatilidad*sqrt(input$tiempo_volatilidad))),0,1))-input$precio_volatilidad
+  c(F1=F1)
+    }
+    solucion<-multiroot(f=funcion_volatilidad,start =c(0.05))$root
+  }
+  return(solucion)
+})
+```
+
